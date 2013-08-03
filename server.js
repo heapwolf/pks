@@ -8,6 +8,7 @@ var multilevel = require('multilevel')
 var sublevel = require('level-sublevel')
 var secure = require('secure-peer')
 var MuxDemux = require('mux-demux')
+var argv = require('optimist').argv
 var Replicate = require('level-replicate')
 var LiveStream = require('level-live-stream')
 var ip = require('ip')
@@ -27,6 +28,12 @@ function hash(key, opts) {
   return shasum.update(key).digest(di)
 }
 
+var opts = { createIfMissing: true, valueEncoding: 'json' }
+var db = sublevel(level('./db', opts))
+var master = Replicate(db, 'master', ip.address())
+var livestream = LiveStream.install(db)
+var servers = []
+
 try {
 
   config = JSON.parse(fs.readFileSync(configpath, { encoding: 'utf8' }))
@@ -37,87 +44,111 @@ try {
   }
 
   peer = secure(pair)
-
+  checkSeed()
 }
+
 catch (ex) {
 
-  console.log('ERR: Could not read public and private key, try `pkp config`.')
+  console.log('ERR: Could not read public and private key, try `pkp config`.', ex)
   process.exit(1)
 }
 
-var opts = { createIfMissing: true }
-var db = sublevel(level('./db', opts))
-var master = Replicate(db, 'master', ip.address())
-var livestream = LiveStream.install(db)
-var servers = []
+function checkSeed() {
 
-db.createLiveStream().on('data', function(ch) {
+  var opts = { algorithm: argv.algorithm, digest: argv.digest }
+  var seed = hash(pair.public, opts)
 
-  if (!ch.type || ch.type === 'put') {
+  db.get(seed, function(err, data) {
 
-    var cert = ch.value
-
-    if (  cert.principal &&
-          cert.principal['server-at'] &&
-          servers.indexOf(cert.principal['server-at']) === -1 ) {
-
-      servers.push(cert.principal['server-at'])
+    if (!err && data) {
+      return start()
     }
-  }
-})
 
-replicate(pair, servers, master)
+    var cert = {
+      'address-at': 'paolo@async.ly',
+      'server-at': ip.address(),
+      'public': config.public
+    }
 
-net.createServer(function (con) {
+    db.put(seed, cert, function(err) {
+      if (err) {
+        return console.log(err)
+      }
+      start()
+    })
+  })
+}
 
-  var key
-  var cert
-  var sec
+function start() {
 
-  sec = peer(function (s) {
+  db.createLiveStream().on('data', function(ch) {
 
-    var mdm = MuxDemux()
-    var auth
+    if (!ch.type || ch.type === 'put') {
 
-    if (!cert) {
-      
-      auth = { 
-        access: function (_null, db, method, args) {
+      var cert = ch.value
 
-          if (method !== 'get') {
-            throw new Error('read-only')
+      if (  cert.principal &&
+            cert.principal['server-at'] &&
+            servers.indexOf(cert.principal['server-at']) === -1 ) {
+
+        servers.push(cert.principal['server-at'])
+      }
+    }
+  })
+
+  replicate(pair, servers, master)
+
+  net.createServer(function (con) {
+
+    var key
+    var cert
+    var sec
+
+    sec = peer(function (s) {
+
+      var mdm = MuxDemux()
+      var auth
+
+      if (!cert) {
+        
+        auth = { 
+          access: function (_null, db, method, args) {
+
+            if (method !== 'get') {
+              throw new Error('read-only')
+            }
           }
         }
       }
-    }
 
-    var m = master.createStream({ tail: true })
-    var d = multilevel.server(db, auth)
+      var m = master.createStream({ tail: true })
+      var d = multilevel.server(db, auth)
 
-    m.pipe(mdm.createStream('master')).pipe(m)
-    d.pipe(mdm.createStream('rpc')).pipe(d)
-    s.pipe(mdm).pipe(s)
-  })
-
-  sec.on('identify', function (id) {
-
-    var offered = hash(id.key.public)
-
-    db.get(offered, function(err, value) {
-
-      if (!err) {
-
-        var stored = hash(value.public, { algorithm: value.algorithm })
-
-        if (stored === offered) {
-          cert = stored
-          key = stored.public
-        }
-      }
-      id.accept()
+      m.pipe(mdm.createStream('master')).pipe(m)
+      d.pipe(mdm.createStream('rpc')).pipe(d)
+      s.pipe(mdm).pipe(s)
     })
-  })
 
-  sec.pipe(con).pipe(sec)
+    sec.on('identify', function (id) {
 
-}).listen(5000)
+      var offered = hash(id.key.public)
+
+      db.get(offered, function(err, value) {
+
+        if (!err) {
+
+          var stored = hash(value.public, { algorithm: value.algorithm })
+
+          if (stored === offered) {
+            cert = stored
+            key = stored.public
+          }
+        }
+        id.accept()
+      })
+    })
+
+    sec.pipe(con).pipe(sec)
+
+  }).listen(5000)
+}
