@@ -13,9 +13,6 @@
     "multilevel": "~5.3.2",
     "secure-peer": "git://github.com/juliangruber/secure-peer#ee49f257e857941c8d80d3058c1e4920d772f2eb",
     "mux-demux": "~3.7.8",
-    "ip": "~0.1.0",
-    "optimist": "~0.6.0",
-    "level-sublevel": "~4.8.3",
     "level-live-stream": "~1.4.7",
     "level-replicate": "~1.1.3"
   }

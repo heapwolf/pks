@@ -1,17 +1,13 @@
 var net = require('net')
 var path = require('path')
 var fs = require('fs')
-var crypto = require('crypto')
 
 var level = require('level')
 var multilevel = require('multilevel')
-var sublevel = require('level-sublevel')
 var secure = require('secure-peer')
 var MuxDemux = require('mux-demux')
-var argv = require('optimist').argv
 var Replicate = require('level-replicate')
 var LiveStream = require('level-live-stream')
-var ip = require('ip')
 
 var replicate = require('./replicate')
 
@@ -20,19 +16,12 @@ var config
 var peer
 var pair // a public and private key pair
 
-function hash(key, opts) {
-  opts = opts || {}
-  alg = opts.algorithm || 'sha1'
-  di = opts.digest || 'hex'
-  var shasum = crypto.createHash(alg)
-  return shasum.update(key).digest(di)
-}
-
 var opts = { createIfMissing: true, valueEncoding: 'json' }
-var db = sublevel(level('./db', opts))
+var db = level('./db', opts)
 var master = Replicate(db, 'master', ip.address())
 var livestream = LiveStream.install(db)
-var servers = []
+var allservers = []
+var recentservers = []
 
 try {
 
@@ -55,22 +44,19 @@ catch (ex) {
 
 function checkSeed() {
 
-  var opts = { algorithm: argv.algorithm, digest: argv.digest }
-  var seed = hash(pair.public, opts)
-
-  db.get(seed, function(err, data) {
+  db.get(pair.public, function(err, data) {
 
     if (!err && data) {
       return start()
     }
 
     var cert = {
-      'address-at': 'paolo@async.ly',
-      'server-at': ip.address(),
+      'address-at': config['address-at'],
+      'servers-at': config['servers-at'],
       'public': config.public
     }
 
-    db.put(seed, cert, function(err) {
+    db.put(config.public, cert, function(err) {
       if (err) {
         return console.log(err)
       }
@@ -87,40 +73,39 @@ function start() {
 
       var cert = ch.value
 
-      if (  cert.principal &&
-            cert.principal['server-at'] &&
-            servers.indexOf(cert.principal['server-at']) === -1 ) {
+      if (cert && cert['servers-at']) {
 
-        servers.push(cert.principal['server-at'])
+        cert['servers-at'].forEach(function(server) {
+
+          if (allservers.indexOf(server) === -1 ) {
+          allservers.push(server)
+        })
       }
     }
   })
 
-  replicate(pair, servers, master)
+  replicate(pair, allservers, recentservers, master)
 
   net.createServer(function (con) {
 
-    var key
     var cert
     var sec
 
     sec = peer(function (s) {
 
       var mdm = MuxDemux()
-      var auth
+      
+      var auth = {
+        access: function (_null, db, method, args) {
 
-      if (!cert) {
-        
-        auth = { 
-          access: function (_null, db, method, args) {
-
-            if (method !== 'get') {
-              throw new Error('read-only')
-            }
+          if ( cert && method === 'put' ||
+               !cert && method === 'get' ) {
+            return true
           }
+          throw new Error('method not allowed')
         }
       }
-
+      
       var m = master.createStream({ tail: true })
       var d = multilevel.server(db, auth)
 
@@ -131,17 +116,11 @@ function start() {
 
     sec.on('identify', function (id) {
 
-      var offered = hash(id.key.public)
-
-      db.get(offered, function(err, value) {
+      db.get(id.key.public, function(err, value) {
 
         if (!err) {
-
-          var stored = hash(value.public, { algorithm: value.algorithm })
-
-          if (stored === offered) {
-            cert = stored
-            key = stored.public
+          if (id.key.public === value.public) {
+            cert = value
           }
         }
         id.accept()
@@ -150,5 +129,5 @@ function start() {
 
     sec.pipe(con).pipe(sec)
 
-  }).listen(5000)
+  }).listen(11372)
 }

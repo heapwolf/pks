@@ -1,16 +1,21 @@
 var net = require('net')
 var secure = require('secure-peer')
 
-module.exports = function(pair, servers, master) {
+module.exports = function(pair, servers, recentservers, master) {
 
   var M1 = 6e4
 
   function connect(server) {
 
-    var s = net.connect(server, 5000)
+    var s = net.connect(server, 11372)
     var peer = secure(pair)
 
     var sec = peer(function (stream) {
+
+      if (recentservers.length === 5) {
+        recentservers.shift()
+        recentservers.push(server)
+      }
 
       setTimeout(function() {
         s.end()
@@ -25,8 +30,8 @@ module.exports = function(pair, servers, master) {
   }
 
   function randomServer() {
-    var r = Math.random()*servers.length
-    return servers[Math.floor(r)]
+    var r = Math.random()*allservers.length
+    return allservers[Math.floor(r)]
   }
 
   setInterval(function() {
