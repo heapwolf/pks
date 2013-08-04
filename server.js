@@ -6,8 +6,10 @@ var level = require('level')
 var multilevel = require('multilevel')
 var secure = require('secure-peer')
 var MuxDemux = require('mux-demux')
+var sublevel = require('level-sublevel')
 var Replicate = require('level-replicate')
 var LiveStream = require('level-live-stream')
+var ip = require('ip')
 
 var replicate = require('./replicate')
 
@@ -17,7 +19,7 @@ var peer
 var pair // a public and private key pair
 
 var opts = { createIfMissing: true, valueEncoding: 'json' }
-var db = level('./db', opts)
+var db = sublevel(level('./db', opts))
 var master = Replicate(db, 'master', ip.address())
 var livestream = LiveStream.install(db)
 var allservers = []
@@ -33,6 +35,7 @@ try {
   }
 
   peer = secure(pair)
+  console.log('Using configuration from %s', configpath)
   checkSeed()
 }
 
@@ -78,7 +81,8 @@ function start() {
         cert['servers-at'].forEach(function(server) {
 
           if (allservers.indexOf(server) === -1 ) {
-          allservers.push(server)
+            allservers.push(server)
+          }
         })
       }
     }
@@ -129,5 +133,7 @@ function start() {
 
     sec.pipe(con).pipe(sec)
 
-  }).listen(11372)
+  }).listen(11372, function() {
+    console.log('Server started on port 11372')
+  })
 }
