@@ -1,12 +1,19 @@
 {
   "name": "pks",
   "version": "0.0.1",
-  "description": "a public key server",
+  "description": "Public Key Server; an invite-only-approach with built in master-master replication.",
   "main": "index.js",
   "bin": "./bin/server",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "crypto",
+    "cryptography",
+    "public-key",
+    "sdsi",
+    "pki"
+  ],
   "author": "hij1nx",
   "license": "MIT",
   "dependencies": {
