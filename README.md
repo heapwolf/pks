@@ -12,11 +12,7 @@ A server should
   - Without auth
     - Responsd with a certificate when queried with a public key
   - With auth
-    - Store a certificate which creates a certificate that has
-      - a finger print from which to access the `subject` (a public key)
-      - the `issuer`'s available identity (server address, url, email, etc.)
-      - the `subject`'s available identity (server address, url, email, etc.)
-      - ctime
+    - Store a certificate
   - Replicate in a Master/Master Scenario according to any known servers in its database
   - Provide a list of up to 5 of the most recently successful servers that it has replicated to
   - Run on port 11372 (the next port after a well known port for the openPGP key server)
