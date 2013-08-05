@@ -95,7 +95,7 @@ function checkSeed() {
 
 function preStart() {
 
-  db.get('list-servers', function(err, data) {
+  db.get('servers', function(err, data) {
     if (data) {
       allservers = data
     }
@@ -104,24 +104,6 @@ function preStart() {
 }
 
 function start() {
-
-  db.createLiveStream().on('data', function(ch) {
-
-    if (!ch.type || ch.type === 'put') {
-
-      var cert = ch.value
-
-      if (cert && cert['servers-at']) {
-
-        cert['servers-at'].forEach(function(server) {
-
-          if (allservers.indexOf(server) === -1 ) {
-            allservers.push(server)
-          }
-        })
-      }
-    }
-  })
 
   replicate(pair, allservers, recentservers, db)
 
