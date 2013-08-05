@@ -9,7 +9,6 @@ var secure = require('secure-peer')
 var sublevel = require('level-sublevel')
 var hooks = require('level-hooks')
 var mts = require('monotonic-timestamp')
-var LiveStream = require('level-live-stream')
 var ip = require('ip')
 
 var replicate = require('./replicate')
