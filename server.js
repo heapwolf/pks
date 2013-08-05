@@ -36,7 +36,6 @@ db.pre({ start: '', end: end }, function (change, add) {
   }
 })
 
-var livestream = LiveStream.install(db)
 var allservers = []
 var recentservers = []
 
