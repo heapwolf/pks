@@ -1,13 +1,14 @@
 var net = require('net')
 var path = require('path')
 var fs = require('fs')
+var crypto = require('crypto')
 
 var level = require('level')
 var multilevel = require('multilevel')
 var secure = require('secure-peer')
-var MuxDemux = require('mux-demux')
 var sublevel = require('level-sublevel')
-var Replicate = require('level-replicate')
+var hooks = require('level-hooks')
+var mts = require('monotonic-timestamp')
 var LiveStream = require('level-live-stream')
 var ip = require('ip')
 
@@ -20,14 +21,31 @@ var pair // a public and private key pair
 
 var opts = { createIfMissing: true, valueEncoding: 'json' }
 var db = sublevel(level('./db', opts))
-var master = Replicate(db, 'master', ip.address())
+
+hooks(db)
+
+var end = 'END RSA PUBLIC KEY~'
+
+db.pre({ start: '', end: end }, function (change, add) {
+
+  if (change.type === 'put') {
+    add({
+      type: 'put',
+      key: ['index', mts(), keyhash(change.key)].join('-'),
+      value: change.key
+    })
+  }
+})
+
 var livestream = LiveStream.install(db)
 var allservers = []
 var recentservers = []
 
 try {
 
-  config = JSON.parse(fs.readFileSync(configpath, { encoding: 'utf8' }))
+  config = JSON.parse(
+    fs.readFileSync(configpath, { encoding: 'utf8' })
+  )
 
   pair = { 
     public: config.public,
@@ -41,8 +59,15 @@ try {
 
 catch (ex) {
 
-  console.log('ERR: Could not read public and private key, try `pkp config`.', ex)
+  console.log(
+    'ERR: Could not read public and private key, try `pkp config`.'
+  )
   process.exit(1)
+}
+
+function keyhash(s) {
+
+  return crypto.createHash('sha1').update(new Buffer(s)).digest('hex')
 }
 
 function checkSeed() {
@@ -50,7 +75,7 @@ function checkSeed() {
   db.get(pair.public, function(err, data) {
 
     if (!err && data) {
-      return start()
+      return preStart()
     }
 
     var cert = {
@@ -63,8 +88,18 @@ function checkSeed() {
       if (err) {
         return console.log(err)
       }
-      start()
+      preStart()
     })
+  })
+}
+
+function preStart() {
+
+  db.get('list-servers', function(err, data) {
+    if (data) {
+      allservers = data
+    }
+    start()
   })
 }
 
@@ -88,7 +123,7 @@ function start() {
     }
   })
 
-  replicate(pair, allservers, recentservers, master)
+  replicate(pair, allservers, recentservers, db)
 
   net.createServer(function (con) {
 
@@ -96,26 +131,21 @@ function start() {
     var sec
 
     sec = peer(function (s) {
-
-      var mdm = MuxDemux()
       
       var auth = {
         access: function (_null, db, method, args) {
 
           if ( cert && method === 'put' ||
-               !cert && method === 'get' ) {
+               !cert && method === 'get' ||
+               !cert && method === 'createReadStream' ) {
+
             return true
           }
           throw new Error('method not allowed')
         }
       }
-      
-      var m = master.createStream({ tail: true })
-      var d = multilevel.server(db, auth)
 
-      m.pipe(mdm.createStream('master')).pipe(m)
-      d.pipe(mdm.createStream('rpc')).pipe(d)
-      s.pipe(mdm).pipe(s)
+      s.pipe(multilevel.server(db, auth)).pipe(s)
     })
 
     sec.on('identify', function (id) {
