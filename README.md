@@ -5,9 +5,8 @@ An invite-only-model public key server.
 ```bash
 npm install pkp -g
 pkp init
-mkdir server
-npm install pks
-node server.js
+npm install pks -g
+pks
 ```
 
 # SERVER SPECIFICATION
