@@ -13,7 +13,7 @@ var ip = require('ip')
 
 var replicate = require('./replicate')
 
-var configpath = path.join(process.env['HOME'], '.pkp')
+var configpath = path.join(process.cwd(), '.pkp.json')
 var config
 var peer
 var pair // a public and private key pair
@@ -23,9 +23,16 @@ var db = sublevel(level('./db', opts))
 
 hooks(db)
 
-var end = 'END RSA PUBLIC KEY~'
+var header = '-----BEGIN RSA PUBLIC KEY-----\n'
+var footer = '\n-----END RSA PUBLIC KEY-----\n\n'
 
-db.pre({ start: '', end: end }, function (change, add) {
+function prepKey(key) {
+  return key.replace(header, '').replace(footer, '')
+}
+
+var endkey = 'END RSA PUBLIC KEY~'
+
+db.pre({ start: '', end: endkey }, function (change, add) {
 
   if (change.type === 'put') {
     add({
@@ -58,7 +65,7 @@ try {
 catch (ex) {
 
   console.log(
-    'ERR: Could not read public and private key, try `pkp config`.'
+    'ERR: Couldn\'t find public and private key in %s.', configpath
   )
   process.exit(1)
 }
@@ -70,7 +77,9 @@ function keyhash(s) {
 
 function checkSeed() {
 
-  db.get(pair.public, function(err, data) {
+  var key = prepKey(pair.public)
+
+  db.get(key, function(err, data) {
 
     if (!err && data) {
       return preStart()
@@ -82,7 +91,7 @@ function checkSeed() {
       'public': config.public
     }
 
-    db.put(config.public, cert, function(err) {
+    db.put(key, cert, function(err) {
       if (err) {
         return console.log(err)
       }
@@ -105,7 +114,7 @@ function start() {
 
   replicate(pair, allservers, recentservers, db)
 
-  net.createServer(function (con) {
+  var server = net.createServer(function (con) {
 
     var cert
     var sec
@@ -119,9 +128,20 @@ function start() {
                !cert && method === 'get' ||
                !cert && method === 'createReadStream' ) {
 
+            var log = {
+              message: 'A ' + method + ' was allowed',
+              args: args
+            }
+            console.log(log)
             return true
           }
-          throw new Error('method not allowed')
+
+          var log = {
+            message: 'An attempt to ' + method + ' was denied.',
+            args: args
+          }
+          console.log(log)
+          s.end()
         }
       }
 
@@ -130,7 +150,7 @@ function start() {
 
     sec.on('identify', function (id) {
 
-      db.get(id.key.public, function(err, value) {
+      db.get(prepKey(id.key.public), function(err, value) {
 
         if (!err) {
           if (id.key.public === value.public) {
@@ -142,8 +162,13 @@ function start() {
     })
 
     sec.pipe(con).pipe(sec)
+  })
 
-  }).listen(11372, function() {
+  server.on('error', function(e) {
+    console.log(e)
+  })
+  
+  server.listen(11372, function() {
     console.log('Server started on port 11372')
   })
 }
